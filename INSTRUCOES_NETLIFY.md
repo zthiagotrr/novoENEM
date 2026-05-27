@@ -37,8 +37,8 @@ A Netlify já detectará automaticamente:
 
 ### Arquivos criados:
 1. **netlify.toml** - Configuração do Netlify
-2. **netlify/functions/api-cpf.js** - Função para consulta de CPF
-3. **netlify/functions/api-pix.js** - Função para gerar PIX
+2. **netlify/functions/cpf.js** - Função para consulta de CPF
+3. **netlify/functions/pix.js** - Função para gerar PIX
 
 ### Endpoints da API:
 - `GET /api/cpf?cpf=12345678901` - Consulta CPF
