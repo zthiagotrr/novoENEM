@@ -1,4 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
+const https = require('https');
 
 // Inicializar Supabase se as variáveis existirem
 let supabase = null;
@@ -7,6 +8,49 @@ if (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY) {
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_KEY
   );
+}
+
+// Helper para fazer requisições POST HTTP via módulo nativo 'https'
+function requestPost(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const urlObj = new URL(url);
+    const options = {
+      hostname: urlObj.hostname,
+      path: urlObj.pathname + urlObj.search,
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body)
+      }
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => {
+        data += chunk;
+      });
+      res.on('end', () => {
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          json: () => {
+            try {
+              return Promise.resolve(JSON.parse(data));
+            } catch (e) {
+              return Promise.reject(new Error('JSON inválido retornado pela API de pagamento.'));
+            }
+          }
+        });
+      });
+    });
+
+    req.on('error', (err) => {
+      reject(err);
+    });
+    req.write(body);
+    req.end();
+  });
 }
 
 exports.handler = async (event, context) => {
@@ -36,6 +80,15 @@ exports.handler = async (event, context) => {
     };
   }
 
+  // Verificar chaves da GothamPay
+  if (!process.env.GOTHAM_CLIENT_ID || !process.env.GOTHAM_CLIENT_SECRET) {
+    return {
+      statusCode: 502,
+      headers,
+      body: JSON.stringify({ message: 'Credenciais GothamPay não configuradas no Netlify.' })
+    };
+  }
+
   try {
     const { nome, cpf } = JSON.parse(event.body || '{}');
     
@@ -47,22 +100,33 @@ exports.handler = async (event, context) => {
       };
     }
 
-    const response = await fetch('https://api.gothampaybr.com/api/v1/pix/cashin', {
-      method: 'POST',
-      headers: {
-        'X-Client-Id': process.env.GOTHAM_CLIENT_ID,
-        'X-Client-Secret': process.env.GOTHAM_CLIENT_SECRET,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        nome,
-        cpf,
-        valor: 85,
-        descricao: 'Caderno Falante'
-      })
+    const postHeaders = {
+      'X-Client-Id': process.env.GOTHAM_CLIENT_ID,
+      'X-Client-Secret': process.env.GOTHAM_CLIENT_SECRET
+    };
+
+    const postBody = JSON.stringify({
+      nome,
+      cpf,
+      valor: 85,
+      descricao: 'Caderno Falante'
     });
 
+    const response = await requestPost(
+      'https://api.gothampaybr.com/api/v1/pix/cashin',
+      postHeaders,
+      postBody
+    );
+
     const data = await response.json();
+
+    if (!response.ok) {
+      return {
+        statusCode: response.status,
+        headers,
+        body: JSON.stringify({ message: data.message || 'Erro ao gerar PIX.' })
+      };
+    }
 
     // Salvar no Supabase se configurado
     if (supabase && data.id) {
@@ -87,7 +151,7 @@ exports.handler = async (event, context) => {
     return {
       statusCode: 502,
       headers,
-      body: JSON.stringify({ message: 'Erro ao gerar PIX.' })
+      body: JSON.stringify({ message: 'Erro ao gerar PIX: ' + err.message })
     };
   }
 };
