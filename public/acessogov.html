@@ -451,10 +451,14 @@
       const apiUrl = `/api/cpf?cpf=${cpfLimpo}`;
       const response = await fetch(apiUrl);
       if (!response.ok) {
-        if (response.status === 400) throw new Error('Parâmetros obrigatórios ausentes');
-        if (response.status === 403) throw new Error('Token inválido, plano expirado ou limite atingido');
-        if (response.status === 502) throw new Error('Erro na base externa');
-        throw new Error('Erro na consulta: ' + response.status);
+        let msg = 'Erro na consulta: ' + response.status;
+        try {
+          const errData = await response.json();
+          if (errData && (errData.erro || errData.message)) {
+            msg = errData.erro || errData.message;
+          }
+        } catch (_) {}
+        throw new Error(msg);
       }
       const data = await response.json();
       if (data.success === false) throw new Error(data.erro || data.error || 'CPF não encontrado');
